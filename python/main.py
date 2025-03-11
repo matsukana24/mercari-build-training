@@ -73,13 +73,28 @@ class AddItemResponse(BaseModel):
 @app.post("/items", response_model=AddItemResponse)
 def add_item(
     name: str = Form(...),
-    db: sqlite3.Connection = Depends(get_db),
+    category: str = Form(...),
+    image: UploadFile = File(...),
+    db: sqlite3.Connection = Depends(get_db)
 ):
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
 
-    insert_item(Item(name=name))
-    return AddItemResponse(**{"message": f"item received: {name}"})
+    image_bytes = image.file.read()
+    hashed_filename = hashlib.sha256(image_bytes).hexdigest() + ".jpg"
+    image_path = f"images/{hashed_filename}"
+    with open(image_path, "wb") as buffer:
+        buffer.write(image_bytes)
+
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO items (name, category, image_name) VALUES (?, ?, ?)",
+        (name, category, hashed_filename)
+    )
+    db.commit()
+
+    return AddItemResponse(message=f"Item added: {name}")
+
 
 
 # get_image is a handler to return an image for GET /images/{filename} .
@@ -136,48 +151,6 @@ class Item(BaseModel):
     name: str
     category: str
 
-@app.post("/items")
-async def create_item(
-    name: str = Form(...), 
-    category: str = Form(...), 
-    image: UploadFile = File(...)
-):
-
-    image_bytes = await image.read()
-    hashed_filename = hashlib.sha256(image_bytes).hexdigest() + ".jpg"
-    
-    image_path = f"images/{hashed_filename}"
-    with open(image_path, "wb") as buffer:
-        buffer.write(image_bytes)
-
-    item = {
-        "name": name,
-        "category": category,
-        "image_name": hashed_filename
-    }
-
-    file_path = "item.json"
-
-    with open(file_path, "r+", encoding="utf-8") as f:
-        f.seek(0)  # ファイルの先頭に移動
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
-            data = {"items": []}  # もし空ならデフォルトをセット
-
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = {"items": []}
-
-    data["items"].append({
-    "name": name,
-    "category": category,
-    "image_name": hashed_filename
-})
-
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-
-    return {"message": "Item added successfully", "image_name": hashed_filename}
 
 
 
